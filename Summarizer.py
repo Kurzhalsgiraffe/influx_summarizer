@@ -3,8 +3,7 @@ import argparse
 import logging
 from datetime import datetime, timedelta, timezone
 from progress.bar import Bar
-from connection_v1 import Influx_v1_connection
-from connection_v2 import Influx_v2_connection
+from connection import Influx_v1_connection, Influx_v2_connection
 from utils import Machine, convert_string_to_datetime, convert_datetime_to_string
 import secret
 
@@ -50,25 +49,19 @@ class Summarizer:
             for table in data:
                 for record in table.records:
                     self.starttime = record.values["_time"]
+
                     mid = record.values["mid"]
                     operid = record.values["operid"]
                     if (mid, operid) in result:
                         result[(mid, operid)][record.values["_field"]] = record.values["_value"]
                     else:
                         result[(mid, operid)] = {record.values["_field"]:record.values["_value"]}
-            for key in result:
-                if "last_operval" not in result[key]:
-                    result[key]["last_operval"] = None
-                if "last_timestamp" not in result[key]:
-                    result[key]["last_timestamp"] = None
-                if "opertime" not in result[key]:
-                    result[key]["opertime"] = 0.0
 
             for mid, operid in result:
                 machine = self.get_machine_from_mid(mid)
-                operation_time = result[(mid, operid)]["opertime"]
-                last_operval = result[(mid, operid)]["last_operval"]
-                last_timestamp = convert_string_to_datetime(result[(mid, operid)]["last_timestamp"])
+                operation_time = result[(mid, operid)].get("opertime")
+                last_operval = result[(mid, operid)].get("last_operval")
+                last_timestamp = convert_string_to_datetime(result[(mid, operid)].get("last_timestamp"))
                 machine.set_operation(operid, operation_time, last_operval, last_timestamp)
 
     def calculate_summary(self):
@@ -162,7 +155,7 @@ def main():
     influx_v1_client = Influx_v1_connection(args.ip, args.v1port, args.user, args.v1passwd, args.db)
     influx_v2_client = Influx_v2_connection(ip=args.ip, port=args.v2port, token=args.v2token, org=args.org, bucket=args.bucket)
 
-    if(influx_v1_client.connected()):    
+    if(influx_v1_client.connected()):
         summarizer = Summarizer(influx_v1=influx_v1_client, influx_v2=influx_v2_client, interval=args.interval)
         
         summarizer.get_data_of_last_summary()

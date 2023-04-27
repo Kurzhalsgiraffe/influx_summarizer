@@ -1,11 +1,13 @@
 #!/usr/bin/python
-from influxdb import InfluxDBClient
+from influxdb import InfluxDBClient as InfluxDBClient_v1
+from influxdb_client import InfluxDBClient as InfluxDBClient_v2
+from influxdb_client.client.write_api import SYNCHRONOUS
 import logging
 
 #----------------------------------------
 class Influx_v1_connection:
     def __init__(self, ip, port, user, passw, db):        
-        self.mInfluxClient= InfluxDBClient(ip, port, user, passw)
+        self.mInfluxClient= InfluxDBClient_v1(ip, port, user, passw)
         self.mDb = db
         self.influxConnect()
 
@@ -57,4 +59,18 @@ class Influx_v1_connection:
                 res = True
             except Exception:
                 res = False
-        return res
+        return res    
+
+class Influx_v2_connection:
+    def __init__(self, ip, port, token, org, bucket):        
+        self.mInfluxClient= InfluxDBClient_v2(url=f"http://{ip}:{port}", token=token, org=org)
+        self.bucket = bucket
+        self.org = org
+
+    #----------------------------------------
+    def influxSend(self, data):
+        self.mInfluxClient.write_api(write_options=SYNCHRONOUS).write(bucket=self.bucket, record=data)
+
+    #----------------------------------------
+    def influxRead(self, querystring):
+        return self.mInfluxClient.query_api().query(querystring, org=self.org)
