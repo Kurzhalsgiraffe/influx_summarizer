@@ -3,48 +3,86 @@ import argparse
 import logging
 from datetime import datetime, timedelta, timezone
 from progress.bar import Bar
-from connection import influxConnection
+from connection_v1 import Influx_v1_connection
+from connection_v2 import Influx_v2_connection
 from utils import Machine, convert_string_to_datetime, convert_datetime_to_string
+import secret
 
-version = "V01.00 01.04.2023"
+READ_LAST_SUMMARY_FROM_VERSION = 2
+SAVE_SUMMARY_TO_VERSIONS = [2]
 
 #----------------------------------------
 class Summarizer:
-    def __init__(self, influx:influxConnection, interval:int):
-        self.influx = influx
+    def __init__(self, influx_v1:Influx_v1_connection, influx_v2:Influx_v2_connection, interval:int):
+        self.influx_v1 = influx_v1
+        self.influx_v2 = influx_v2
         self.interval = interval
         self.starttime = None
         self.observed_machines = {} # {"mid": <machine>}
 
     def get_data_of_last_summary(self):
-        sqlStr = "SELECT \"mid\", \"operid\", \"opertime\", \"last_operval\", \"last_timestamp\" FROM \"m2m\".\"autogen\".\"summary\" GROUP BY * ORDER BY DESC LIMIT 1"
-        #logging.info(f'query {sqlStr}')
+        # InfluxQL:
+        if READ_LAST_SUMMARY_FROM_VERSION == 1:
+            sqlStr = "SELECT \"mid\", \"operid\", \"opertime\", \"last_operval\", \"last_timestamp\" FROM \"m2m\".\"autogen\".\"summary\" GROUP BY * ORDER BY DESC LIMIT 1"
+            data = self.influx_v1.influxRead(sqlStr)
 
-        data = self.influx.influxRead(sqlStr)
-        for d in data:
-            for line in d:
-                self.starttime = convert_string_to_datetime(line["time"])
+            for d in data:
+                for line in d:
+                    self.starttime = convert_string_to_datetime(line["time"])
 
-                machine = self.get_machine_from_mid(line["mid"])
-                operid = line["operid"]
-                operation_time = line["opertime"]
-                last_operval = line["last_operval"]
-                last_timestamp = convert_string_to_datetime(line["last_timestamp"])
+                    machine = self.get_machine_from_mid(line["mid"])
+                    operid = line["operid"]
+                    operation_time = line["opertime"]
+                    last_operval = line["last_operval"]
+                    last_timestamp = convert_string_to_datetime(line["last_timestamp"])
+                    machine.set_operation(operid, operation_time, last_operval, last_timestamp)
+
+        # Flux
+        elif READ_LAST_SUMMARY_FROM_VERSION == 2:
+            query = '''from(bucket: "m2m")
+            |> range(start: 0)
+            |> filter(fn: (r) => r["_measurement"] == "summary")
+            |> last()
+            '''
+            result = {}
+
+            data = self.influx_v2.influxRead(query)
+            for table in data:
+                for record in table.records:
+                    self.starttime = record.values["_time"]
+                    mid = record.values["mid"]
+                    operid = record.values["operid"]
+                    if (mid, operid) in result:
+                        result[(mid, operid)][record.values["_field"]] = record.values["_value"]
+                    else:
+                        result[(mid, operid)] = {record.values["_field"]:record.values["_value"]}
+            for key in result:
+                if "last_operval" not in result[key]:
+                    result[key]["last_operval"] = None
+                if "last_timestamp" not in result[key]:
+                    result[key]["last_timestamp"] = None
+                if "opertime" not in result[key]:
+                    result[key]["opertime"] = 0.0
+
+            for mid, operid in result:
+                machine = self.get_machine_from_mid(mid)
+                operation_time = result[(mid, operid)]["opertime"]
+                last_operval = result[(mid, operid)]["last_operval"]
+                last_timestamp = convert_string_to_datetime(result[(mid, operid)]["last_timestamp"])
                 machine.set_operation(operid, operation_time, last_operval, last_timestamp)
 
     def calculate_summary(self):
         sqlStr  = "SELECT \"mid\", \"operid\", \"operval\" FROM \"m2m\".\"autogen\".\"records\""
         sqlStr += " WHERE time>'" + convert_datetime_to_string(self.starttime) + "'"
         sqlStr += " AND time<'" + convert_datetime_to_string(self.endtime) + "'"
-        #logging.info(f'query {sqlStr}')
 
-        data = self.influx.influxRead(sqlStr)
+        data = self.influx_v1.influxRead(sqlStr)
         for d in data:
-            self.process_data(d)
+            self.process_raw_data(d)
 
         self.write_data()
 
-    def process_data(self, data):
+    def process_raw_data(self, data):
         # Processing influx data and save to self.observed_machines
         for line in data:
             machine = self.get_machine_from_mid(line["mid"])
@@ -72,7 +110,11 @@ class Summarizer:
                     }
                 }
                 data.append(json_body)
-        self.influx.influxSend(data)
+
+        if 1 in SAVE_SUMMARY_TO_VERSIONS:
+            self.influx_v1.influxSend(data)
+        if 2 in SAVE_SUMMARY_TO_VERSIONS:
+            self.influx_v2.influxSend(data)
 
     def get_machine_from_mid(self, mid):
         if mid not in self.observed_machines:
@@ -84,41 +126,50 @@ class Summarizer:
 
 #----------------------------------------
 def printArgs(args):
-    logging.info(f'---------- {version} ----------')
-    logging.info(f'-ip        {args.ip}')
-    logging.info(f'-port      {args.port}')
-    logging.info(f'-user      {args.user}')
-    logging.info(f'-passwd    {args.passwd}')
-    logging.info(f'-db        {args.db}')
-    logging.info(f'-interval  {args.interval}')
-    logging.info(f'-print  {args.print}')
+    logging.info(f'-ip       {args.ip}')
+    logging.info(f'-v1port   {args.v1port}')
+    logging.info(f'-v2port   {args.v2port}')
+    logging.info(f'-user     {args.user}')
+    logging.info(f'-org      {args.org}')
+    logging.info(f'-v1passwd {args.v1passwd}')
+    logging.info(f'-v2token  {args.v2token}')
+    logging.info(f'-db       {args.db}')
+    logging.info(f'-bucket   {args.bucket}')
+    logging.info(f'-interval {args.interval}')
+    logging.info(f'-print    {args.print}')
 #----------------------------------------
 def main():
     start_time = datetime.now(timezone.utc) # Time of Program Start, to calculate the execution time
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-ip',       default='')
-    parser.add_argument('-port',     default='8086')
-    parser.add_argument('-user',     default='')
-    parser.add_argument('-passwd',   default='')
+    parser.add_argument('-ip',       default=secret.ip)
+    parser.add_argument('-v1port',   default=secret.influx_v1_port)
+    parser.add_argument('-v2port',   default=secret.influx_v2_port)
+    parser.add_argument('-user',     default=secret.user)
+    parser.add_argument('-org',      default=secret.org)
+    parser.add_argument('-v1passwd', default=secret.influx_v1_pw)
+    parser.add_argument('-v2token',  default=secret.influx_v2_token)
     parser.add_argument('-db',       default='m2m')
+    parser.add_argument('-bucket',   default='m2m')
     parser.add_argument('-interval', default=30)
-    parser.add_argument('-print', default=False)
+    parser.add_argument('-print',    default=False)
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
 
     printArgs(args)
 
-    influxClient = influxConnection(args.ip, args.port, args.user, args.passwd, args.db)
-    if(influxClient.connected()):    
-        summarizer = Summarizer(influx=influxClient, interval=args.interval)
+    influx_v1_client = Influx_v1_connection(args.ip, args.v1port, args.user, args.v1passwd, args.db)
+    influx_v2_client = Influx_v2_connection(ip=args.ip, port=args.v2port, token=args.v2token, org=args.org, bucket=args.bucket)
+
+    if(influx_v1_client.connected()):    
+        summarizer = Summarizer(influx_v1=influx_v1_client, influx_v2=influx_v2_client, interval=args.interval)
         
         summarizer.get_data_of_last_summary()
 
         timenow = datetime.now(timezone.utc)
         if summarizer.starttime == None:
-            summarizer.starttime = timenow - timedelta(hours=24)
+            summarizer.starttime = timenow - timedelta(hours=48)
 
         loop_counter = 0
         estimated_loops = int((timenow - summarizer.starttime) / timedelta(seconds=int(args.interval)))

@@ -3,7 +3,7 @@ from influxdb import InfluxDBClient
 import logging
 
 #----------------------------------------
-class influxConnection:
+class Influx_v1_connection:
     def __init__(self, ip, port, user, passw, db):        
         self.mInfluxClient= InfluxDBClient(ip, port, user, passw)
         self.mDb = db
