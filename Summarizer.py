@@ -12,17 +12,18 @@ SAVE_SUMMARY_TO_VERSIONS = [2]
 
 #----------------------------------------
 class Summarizer:
-    def __init__(self, influx_v1:Influx_v1_connection, influx_v2:Influx_v2_connection, interval:int):
+    def __init__(self, influx_v1:Influx_v1_connection, influx_v2:Influx_v2_connection, interval:int, name:str):
         self.influx_v1 = influx_v1
         self.influx_v2 = influx_v2
         self.interval = interval
+        self.name = name
         self.starttime = None
         self.observed_machines = {} # {"mid": <machine>}
 
     def get_data_of_last_summary(self):
         # InfluxQL:
         if READ_LAST_SUMMARY_FROM_VERSION == 1:
-            sqlStr = "SELECT \"mid\", \"operid\", \"opertime\", \"last_operval\", \"last_timestamp\" FROM \"m2m\".\"autogen\".\"summary\" GROUP BY * ORDER BY DESC LIMIT 1"
+            sqlStr = f"SELECT \"mid\", \"operid\", \"opertime\", \"last_operval\", \"last_timestamp\" FROM \"m2m\".\"autogen\".\"{self.name}\" GROUP BY * ORDER BY DESC LIMIT 1"
             data = self.influx_v1.influxRead(sqlStr)
 
             for d in data:
@@ -38,9 +39,9 @@ class Summarizer:
 
         # Flux
         elif READ_LAST_SUMMARY_FROM_VERSION == 2:
-            query = '''from(bucket: "m2m")
+            query = f'''from(bucket: "m2m")
             |> range(start: 0)
-            |> filter(fn: (r) => r["_measurement"] == "summary")
+            |> filter(fn: (r) => r["_measurement"] == "{self.name}")
             |> last()
             '''
             result = {}
@@ -90,7 +91,7 @@ class Summarizer:
         for mid, machine in self.observed_machines.items():
             for operid, operation in machine.operations.items():
                 json_body = {
-                    "measurement": "summary",
+                    "measurement": f"{self.name}",
                     "tags": {
                         "mid": int(mid),
                         "operid": int(operid)
@@ -129,6 +130,7 @@ def printArgs(args):
     logging.info(f'-db       {args.db}')
     logging.info(f'-bucket   {args.bucket}')
     logging.info(f'-interval {args.interval}')
+    logging.info(f'-name     {args.name}')
     logging.info(f'-print    {args.print}')
 #----------------------------------------
 def main():
@@ -145,6 +147,7 @@ def main():
     parser.add_argument('-db',       default='m2m')
     parser.add_argument('-bucket',   default='m2m')
     parser.add_argument('-interval', default=30)
+    parser.add_argument('-name',     default="summary_30")
     parser.add_argument('-print',    default=False)
 
     args = parser.parse_args()
@@ -156,13 +159,14 @@ def main():
     influx_v2_client = Influx_v2_connection(ip=args.ip, port=args.v2port, token=args.v2token, org=args.org, bucket=args.bucket)
 
     if(influx_v1_client.connected()):
-        summarizer = Summarizer(influx_v1=influx_v1_client, influx_v2=influx_v2_client, interval=args.interval)
-        
+        summarizer = Summarizer(influx_v1=influx_v1_client, influx_v2=influx_v2_client, interval=args.interval, name=args.name)
         summarizer.get_data_of_last_summary()
-
         timenow = datetime.now(timezone.utc)
+
+        # Wenn noch keine Zusammenfassung existiert, dann...
         if summarizer.starttime == None:
-            summarizer.starttime = timenow - timedelta(hours=48)
+            #summarizer.starttime = timenow - timedelta(hours=48)  # ...fasse die letzten 48 Stunden zusammen
+            summarizer.starttime = convert_string_to_datetime("2023-04-20 00:00:00") # ...fasse alles seit diesem Datum zusammen
 
         loop_counter = 0
         estimated_loops = int((timenow - summarizer.starttime) / timedelta(seconds=int(args.interval)))
