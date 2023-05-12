@@ -146,8 +146,8 @@ def main():
     parser.add_argument('-v2token',  default=secret.influx_v2_token)
     parser.add_argument('-db',       default='m2m')
     parser.add_argument('-bucket',   default='m2m')
-    parser.add_argument('-interval', default=30)
-    parser.add_argument('-name',     default="summary_30")
+    parser.add_argument('-interval', default=300)
+    parser.add_argument('-name',     default="summary_300")
     parser.add_argument('-print',    default=False)
 
     args = parser.parse_args()
@@ -162,6 +162,7 @@ def main():
         summarizer = Summarizer(influx_v1=influx_v1_client, influx_v2=influx_v2_client, interval=args.interval, name=args.name)
         summarizer.get_data_of_last_summary()
         timenow = datetime.now(timezone.utc)
+        #timenow = convert_string_to_datetime("2023-05-15 00:00:00") # Endzeit für Performance Tests
 
         # Wenn noch keine Zusammenfassung existiert, dann...
         if summarizer.starttime == None:
