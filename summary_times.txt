@@ -1,0 +1,37 @@
+2023-05-15 16:00:00 - 2023-05-22 16:00:00
+
+summary_30 (influx 1.8): 
+    Intervalle: 20160
+    Dauer: 0:24:14.942398       (1.454,94s)
+    Datenpunkte: 13.041.137
+    Zeit pro Intervall: 0,072s
+
+summary_30 (influx 2.1): 
+    Intervalle: 20160
+    Dauer: 0:22:20.103137       (1.340,1s)
+    Datenpunkte: 13.041.137
+    Zeit pro Intervall: 0,066s
+
+summary_300 (influx 1.8): 
+    Intervalle: 2016
+    Dauer: 0:08:48.913670       (528,91s)
+    Datenpunkte: 13.041.536
+    Zeit pro Intervall: 0,262s
+
+summary_300 (influx 2.1): 
+    Intervalle: 2016
+    Dauer: 0:08:21.568518       (501,57s)
+    Datenpunkte: 13.041.536
+    Zeit pro Intervall: 0,248s
+
+summary_3600 (influx 1.8): 
+    Intervalle: 168
+    Dauer: 0:07:01.357240       (421,36s)
+    Datenpunkte: 13.041.589
+    Zeit pro Intervall: 2,508s
+
+summary_3600 (influx 2.1): 
+    Intervalle: 168
+    Dauer: 0:06:52.872640       (412,87s)
+    Datenpunkte: 13.041.589
+    Zeit pro Intervall: 2,457s
