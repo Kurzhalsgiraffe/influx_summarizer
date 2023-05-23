@@ -9,6 +9,7 @@ import secret
 
 READ_LAST_SUMMARY_FROM_VERSION = 2
 SAVE_SUMMARY_TO_VERSIONS = [2]
+TOTAL_LINES_PROCESSED = 0
 
 #----------------------------------------
 class Summarizer:
@@ -79,6 +80,8 @@ class Summarizer:
     def process_raw_data(self, data):
         # Processing influx data and save to self.observed_machines
         for line in data:
+            global TOTAL_LINES_PROCESSED
+            TOTAL_LINES_PROCESSED += 1
             machine = self.get_machine_from_mid(line["mid"])
             operid = line["operid"]
             operation_value = line["operval"]
@@ -133,7 +136,7 @@ def printArgs(args):
     logging.info(f'-name     {args.name}')
     logging.info(f'-print    {args.print}')
 #----------------------------------------
-def main():
+def main(tabletime):
     start_time = datetime.now(timezone.utc) # Time of Program Start, to calculate the execution time
 
     parser = argparse.ArgumentParser()
@@ -146,8 +149,8 @@ def main():
     parser.add_argument('-v2token',  default=secret.influx_v2_token)
     parser.add_argument('-db',       default='m2m')
     parser.add_argument('-bucket',   default='m2m')
-    parser.add_argument('-interval', default=300)
-    parser.add_argument('-name',     default="summary_300")
+    parser.add_argument('-interval', default=tabletime)
+    parser.add_argument('-name',     default=f"summary_{tabletime}")
     parser.add_argument('-print',    default=False)
 
     args = parser.parse_args()
@@ -162,12 +165,12 @@ def main():
         summarizer = Summarizer(influx_v1=influx_v1_client, influx_v2=influx_v2_client, interval=args.interval, name=args.name)
         summarizer.get_data_of_last_summary()
         timenow = datetime.now(timezone.utc)
-        #timenow = convert_string_to_datetime("2023-05-15 00:00:00") # Endzeit für Performance Tests
+        #timenow = convert_string_to_datetime("2023-05-22 16:00:00") # Endzeit für Performance Tests
 
         # Wenn noch keine Zusammenfassung existiert, dann...
         if summarizer.starttime == None:
             #summarizer.starttime = timenow - timedelta(hours=48)  # ...fasse die letzten 48 Stunden zusammen
-            summarizer.starttime = convert_string_to_datetime("2023-04-20 00:00:00") # ...fasse alles seit diesem Datum zusammen
+            summarizer.starttime = convert_string_to_datetime("2023-04-01 16:00:00") # ...fasse alles seit diesem Datum zusammen
 
         loop_counter = 0
         estimated_loops = int((timenow - summarizer.starttime) / timedelta(seconds=int(args.interval)))
@@ -198,8 +201,10 @@ def main():
                         f"{f'Operation Time: {operation.operation_time}':<20}"
                     ))
 
-        logging.info(f"Calculated Summary of {loop_counter} Intervals in {stop_time-start_time}")
+        logging.info(f"Calculated Summary of {loop_counter} Intervals in {stop_time-start_time}. Processed {TOTAL_LINES_PROCESSED} in total")
 
 #----------------------------------------
 if __name__ == "__main__":
-    main()
+    main(30)
+    main(300)
+    main(3600)
